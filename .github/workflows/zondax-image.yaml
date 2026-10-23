@@ -4,8 +4,11 @@
 # still open upstream (drop each once merged there):
 #   - lablabs/cloudflare-exporter#218 (stale series cleanup; fixes the ASN memory leak, #217)
 # To update: sync master from upstream, then rebase `zondax` onto it.
-# Images go to ghcr.io/zondax/cloudflare-exporter, tagged with the full commit
-# SHA (pin this one) and a `git describe` version (e.g. 0.2.3-14-g1a2b3c4).
+# Images go to Docker Hub zondax/cloudflare-exporter (pull them through
+# registry.zondax.ch). That repo also holds the Helm chart under bare semver
+# tags (0.2.3), as zondax/beryx-fil does, so image tags never use that form:
+# the full commit SHA (pin this one) and a v-prefixed `git describe` version
+# (e.g. v0.2.3-16-ga1260f0).
 name: Zondax image
 
 on:
@@ -39,11 +42,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
       id-token: write
       attestations: write
     env:
-      KO_DOCKER_REPO: ghcr.io/zondax/cloudflare-exporter
+      KO_DOCKER_REPO: docker.io/zondax/cloudflare-exporter
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -55,7 +57,7 @@ jobs:
           git fetch --no-tags https://github.com/lablabs/cloudflare-exporter.git master
           upstream_sha=$(git merge-base HEAD FETCH_HEAD)
           describe=$(git describe --tags --match 'cloudflare-exporter-*' HEAD)
-          version="${describe#cloudflare-exporter-}"
+          version="v${describe#cloudflare-exporter-}"
           {
             echo "sha=${GITHUB_SHA}"
             echo "version=${version}"
@@ -68,6 +70,11 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - uses: ko-build/setup-ko@d006021bd0c28d1ce33a07e7943d48b079944c8d # v0.9
         with:
           version: v0.18.0
@@ -78,9 +85,7 @@ jobs:
           SHA: ${{ steps.version.outputs.sha }}
           VERSION: ${{ steps.version.outputs.version }}
           UPSTREAM_SHA: ${{ steps.version.outputs.upstream_sha }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "$GH_TOKEN" | ko login ghcr.io --username "${{ github.actor }}" --password-stdin
           ko build . --sbom=none --bare --image-refs ./image-refs \
             --platform linux/amd64,linux/arm64 \
             -t "${SHA}" -t "${VERSION}" \
@@ -104,6 +109,6 @@ jobs:
 
       - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
         with:
-          subject-name: ghcr.io/zondax/cloudflare-exporter
+          subject-name: index.docker.io/zondax/cloudflare-exporter
           subject-digest: ${{ steps.publish.outputs.digest }}
           push-to-registry: true
